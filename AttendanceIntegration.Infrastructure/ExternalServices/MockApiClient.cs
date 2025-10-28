@@ -17,7 +17,6 @@ public class MockApiClient
         _logger = logger;
         _baseUrl = configuration["MockApiSettings:BaseUrl"] ?? "https://localhost:7001";
 
-        // Configurar HttpClient para aceptar certificados self-signed en desarrollo
         var handler = new HttpClientHandler();
         handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
     }

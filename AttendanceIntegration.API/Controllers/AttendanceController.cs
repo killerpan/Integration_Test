@@ -3,6 +3,7 @@ using AttendanceIntegration.Core.Interfaces;
 using AttendanceIntegration.Infrastructure.ExternalServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace AttendanceIntegration.API.Controllers;
 
@@ -15,14 +16,17 @@ public class AttendanceController : ControllerBase
     private readonly IAttendanceService _attendanceService;
     private readonly MockApiClient _mockApiClient;
     private readonly ILogger<AttendanceController> _logger;
+    private readonly ExcelParserService _excelParserService;
 
     public AttendanceController(
         IAttendanceService attendanceService, 
         MockApiClient mockApiClient,
+        ExcelParserService excelParserService,
         ILogger<AttendanceController> logger)
     {
         _attendanceService = attendanceService;
         _mockApiClient = mockApiClient;
+        _excelParserService = excelParserService;
         _logger = logger;
     }
 
@@ -97,24 +101,37 @@ public class AttendanceController : ControllerBase
     public async Task<ActionResult<AttendanceImportResponse>> ImportFromExcel(IFormFile file, [FromQuery] int companyId)
     {
         if (file == null || file.Length == 0)
-            return BadRequest("No file provided");
+            return BadRequest("Missing Excel file.");
 
-        if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-            return BadRequest("File must be Excel format (.xlsx)");
-
-        _logger.LogInformation("Importing Excel file {FileName} for company {CompanyId}", file.FileName, companyId);
-
-        using var stream = file.OpenReadStream();
-        var result = await _attendanceService.ImportFromExcelAsync(stream, companyId);
-
-        if (!result.Success)
+        List<AttendanceRecordDto> records;
+        try
         {
-            _logger.LogWarning("Excel import failed: {Errors}", string.Join(", ", result.Errors));
-            return BadRequest(result);
+            using var stream = file.OpenReadStream();
+            var entities = await _excelParserService.ParseAttendanceExcelAsync(stream, companyId);
+
+            records = entities.Select(e => new AttendanceRecordDto
+            {
+                EmployeeId = e.EmployeeId,
+                EmployeeName = e.EmployeeName,
+                Date = e.Date,
+                CheckIn = e.CheckIn,
+                CheckOut = e.CheckOut,
+                TotalHours = e.TotalHours,
+                OvertimeHours = e.OvertimeHours,
+                CompanyId = e.CompanyId
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error parsing Excel: {ex.Message}");
         }
 
-        return Ok(result);
+        var response = await _attendanceService.ImportFromExcelAsync(records);
+
+        return Ok(response);
     }
+
+
 
     /// <summary>
     /// Obtiene registros de asistencia por rango de fechas
@@ -122,8 +139,8 @@ public class AttendanceController : ControllerBase
     [HttpGet("{companyId}")]
     public async Task<ActionResult<IEnumerable<AttendanceRecordDto>>> GetAttendance(
         int companyId,
-        [FromQuery] DateTime startDate,
-        [FromQuery] DateTime endDate)
+        [FromQuery, BindRequired] DateTime startDate,
+        [FromQuery, BindRequired] DateTime endDate)
     {
         _logger.LogInformation("Retrieving attendance for company {CompanyId}", companyId);
         var records = await _attendanceService.GetAttendanceAsync(companyId, startDate, endDate);

@@ -11,39 +11,35 @@ public class ExcelParserService
         ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
         using var package = new ExcelPackage(fileStream);
-        var worksheet = package.Workbook.Worksheets[0];
-
+        var worksheet = package.Workbook.Worksheets.FirstOrDefault();
         if (worksheet == null)
-            throw new Exception("No worksheet found");
+            throw new Exception("El archivo Excel no contiene hojas de cálculo válidas.");
 
         var rowCount = worksheet.Dimension?.Rows ?? 0;
-
-        for (int row = 2; row <= rowCount; row++)
+        for (int row = rowCount; row >= 2; row--)
         {
             try
             {
                 var record = new AttendanceRecord
                 {
-                    EmployeeId = worksheet.Cells[row, 1].Text,
-                    EmployeeName = worksheet.Cells[row, 2].Text,
+                    EmployeeId = worksheet.Cells[row, 1].Text.Trim(),
+                    EmployeeName = worksheet.Cells[row, 2].Text.Trim(),
                     Date = DateTime.Parse(worksheet.Cells[row, 3].Text),
-                    CheckIn = !string.IsNullOrEmpty(worksheet.Cells[row, 4].Text) 
-                        ? TimeSpan.Parse(worksheet.Cells[row, 4].Text) : null,
-                    CheckOut = !string.IsNullOrEmpty(worksheet.Cells[row, 5].Text) 
-                        ? TimeSpan.Parse(worksheet.Cells[row, 5].Text) : null,
-                    TotalHours = decimal.Parse(worksheet.Cells[row, 6].Text),
-                    OvertimeHours = decimal.Parse(worksheet.Cells[row, 7].Text),
+                    CheckIn = TimeSpan.TryParse(worksheet.Cells[row, 4].Text, out var ci) ? ci : (TimeSpan?)null,
+                    CheckOut = TimeSpan.TryParse(worksheet.Cells[row, 5].Text, out var co) ? co : (TimeSpan?)null,
+                    TotalHours = decimal.TryParse(worksheet.Cells[row, 6].Text, out var t) ? t : 0,
+                    OvertimeHours = decimal.TryParse(worksheet.Cells[row, 7].Text, out var ot) ? ot : 0,
                     CompanyId = companyId,
                     CreatedAt = DateTime.UtcNow,
                     Source = "Excel",
                     Processed = false
                 };
-
                 records.Add(record);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error row {row}: {ex.Message}");
+                Console.WriteLine($"Error en fila {row}: {ex.Message}");
+                Console.WriteLine(ex);
             }
         }
 

@@ -58,24 +58,50 @@ public class AttendanceService : IAttendanceService
         return response;
     }
 
-    public async Task<AttendanceImportResponse> ImportFromExcelAsync(Stream fileStream, int companyId)
+    public async Task<AttendanceImportResponse> ImportFromExcelAsync(List<AttendanceRecordDto> records)
     {
-        var response = new AttendanceImportResponse();
+        var response = new AttendanceImportResponse { TotalRecords = records.Count };
 
         try
         {
+            var entities = records.Select(dto => new AttendanceRecord
+            {
+                EmployeeId = dto.EmployeeId,
+                EmployeeName = dto.EmployeeName,
+                Date = dto.Date,
+                CheckIn = dto.CheckIn,
+                CheckOut = dto.CheckOut,
+                TotalHours = dto.TotalHours,
+                OvertimeHours = dto.OvertimeHours,
+                CompanyId = dto.CompanyId,
+                CreatedAt = DateTime.UtcNow,
+                Source = "Excel",
+                Processed = false
+            }).ToList();
+
+            await _repository.AddRangeAsync(entities);
+
+            response.ProcessedRecords = entities.Count;
             response.Success = true;
+
             await _auditService.LogAsync("ImportFromExcel", "AttendanceRecord",
-                companyId.ToString(), "System", "Excel import initiated", true);
+                entities.FirstOrDefault()?.CompanyId.ToString() ?? "0",
+                "System", $"Imported {entities.Count} records via Excel", true);
         }
         catch (Exception ex)
         {
             response.Success = false;
             response.Errors.Add(ex.Message);
+            response.FailedRecords = response.TotalRecords - response.ProcessedRecords;
+
+            await _auditService.LogAsync("ImportFromExcel", "AttendanceRecord",
+                records.FirstOrDefault()?.CompanyId.ToString() ?? "0",
+                "System", $"Failed: {ex.Message}", false);
         }
 
         return response;
     }
+
 
     public async Task<IEnumerable<AttendanceRecordDto>> GetAttendanceAsync(int companyId, DateTime startDate, DateTime endDate)
     {
